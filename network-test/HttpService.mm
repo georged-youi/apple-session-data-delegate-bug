@@ -39,30 +39,13 @@
         http_service_->active_task_.redirects_taken_++;
         completionHandler(request);
     } else {
+        // This sleep seems to fix the issue
+        // or at least it prevents the task response from being nil
+        // when -[SessionDelegate URLSession:task:didCompleteWithError:] gets called.
         //std::this_thread::sleep_for(std::chrono::milliseconds(1));
         completionHandler(NULL);
     }
 }
-
-// Tells the delegate that the data task received the initial reply (headers) from the server.
-#if 0
-- (void)URLSession:(NSURLSession *)session
-              dataTask:(NSURLSessionDataTask *)task
-    didReceiveResponse:(NSURLResponse *)response
-     completionHandler:(void (^)(NSURLSessionResponseDisposition disposition))completionHandler
-{
-    std::cout << __PRETTY_FUNCTION__ << std::endl;
-    auto it = http_service_->active_tasks_.find((__bridge void *)task);
-    HTTPService::ActiveTask &activeTask = it->second;
-    if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
-        NSHTTPURLResponse *httpResponse = static_cast<NSHTTPURLResponse *>(response);
-        activeTask.http_status_code_ = static_cast<int>(httpResponse.statusCode);
-    } else {
-        activeTask.http_status_code_ = 200;
-    }
-    completionHandler(NSURLSessionResponseAllow);
-}
-#endif
 
 // Tells the delegate that the data task has received some of the expected data.
 - (void)URLSession:(NSURLSession *)session
