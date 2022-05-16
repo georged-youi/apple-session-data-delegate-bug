@@ -2,7 +2,6 @@
 
 #include <thread>
 #include <string>
-#include <map>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -34,7 +33,7 @@ public:
     std::mutex mutex_;
     std::condition_variable cond_;
     NSURLSession *session_;
-    std::map<void *, ActiveTask> active_tasks_;
+    ActiveTask active_task_;
 };
 
 NS_ASSUME_NONNULL_END

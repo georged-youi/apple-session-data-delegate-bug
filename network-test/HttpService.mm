@@ -10,6 +10,20 @@
     didCompleteWithError:(NSError *)error
 {
     std::cout << __PRETTY_FUNCTION__ << std::endl;
+
+    NSURLResponse *response = [task response];
+    if (response == nil)
+    {
+        std::cout << "The task response is nil!" << std::endl;
+        abort();
+    }
+    if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
+        NSHTTPURLResponse *httpResponse = static_cast<NSHTTPURLResponse *>(response);
+        http_service_->active_task_.http_status_code_ = static_cast<int>(httpResponse.statusCode);
+    } else {
+        http_service_->active_task_.http_status_code_ = 200;
+    }
+    
     http_service_->cond_.notify_one();
 }
 
@@ -21,10 +35,8 @@
              completionHandler:(void (^)(NSURLRequest *))completionHandler
 {
     std::cout << __PRETTY_FUNCTION__ << std::endl;
-    auto it = http_service_->active_tasks_.find((__bridge void *)task);
-    HTTPService::ActiveTask &activeTask = it->second;
-    if (activeTask.redirects_taken_ < 1) {
-        activeTask.redirects_taken_++;
+    if (http_service_->active_task_.redirects_taken_ < 1) {
+        http_service_->active_task_.redirects_taken_++;
         completionHandler(request);
     } else {
         //std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -33,6 +45,7 @@
 }
 
 // Tells the delegate that the data task received the initial reply (headers) from the server.
+#if 0
 - (void)URLSession:(NSURLSession *)session
               dataTask:(NSURLSessionDataTask *)task
     didReceiveResponse:(NSURLResponse *)response
@@ -49,6 +62,7 @@
     }
     completionHandler(NSURLSessionResponseAllow);
 }
+#endif
 
 // Tells the delegate that the data task has received some of the expected data.
 - (void)URLSession:(NSURLSession *)session
@@ -56,7 +70,6 @@
     didReceiveData:(NSData *)data
 {
     std::cout << __PRETTY_FUNCTION__ << std::endl;
-    http_service_->cond_.notify_one();
 }
 
 @end
@@ -87,13 +100,11 @@ void HTTPService::start_transfer(const std::string &url)
         request.HTTPShouldHandleCookies = NO;
         [request setHTTPMethod:@"GET"];
         NSURLSessionDataTask *task = [session_ dataTaskWithRequest:request];
-        ActiveTask activeTask;
-        activeTask.redirects_taken_ = 0;
-        activeTask.http_status_code_ = 0;
-        activeTask.session_data_task_ = task;
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            active_tasks_.emplace((__bridge void *)task, std::move(activeTask));
+            active_task_.redirects_taken_ = 0;
+            active_task_.http_status_code_ = 0;
+            active_task_.session_data_task_ = task;
         }
         [task resume];
     }
@@ -104,21 +115,14 @@ void HTTPService::run()
     for (;;) {
         std::unique_lock<std::mutex> lock(mutex_);
         cond_.wait(lock);
-        for (auto it = active_tasks_.begin(); it != active_tasks_.end();) {
-            ActiveTask &activeTask = it->second;
-            if (activeTask.session_data_task_.state == NSURLSessionTaskStateCompleted) {
-                std::cout << "http status code: " << activeTask.http_status_code_ << std::endl;
-                if (activeTask.http_status_code_ == 0) {
-                    std::cerr << "-[SessionDelegate URLSession:dataTask:didReceiveResponse:completionHandler:] was not called. Exiting..." << std::endl;
-                    return;
-                }
-                it = active_tasks_.erase(it);
-                lock.unlock();
-                start_transfer("http://testbin.corp.youi.tv/relative-redirect/3");
-                break;
-            } else {
-                ++it;
+        if (active_task_.session_data_task_.state == NSURLSessionTaskStateCompleted) {
+            std::cout << "http status code: " << active_task_.http_status_code_ << std::endl;
+            if (active_task_.http_status_code_ == 0) {
+                std::cerr << "The http ststus code is unknown! Exiting..." << std::endl;
+                abort();
             }
+            lock.unlock();
+            start_transfer("http://testbin.corp.youi.tv/redirect/3");
         }
     }
     
